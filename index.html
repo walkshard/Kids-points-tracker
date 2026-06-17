@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Family Point Tracker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+</head>
+<body class="bg-gray-100 flex flex-col h-screen max-w-md mx-auto shadow-xl relative">
+  <header class="bg-indigo-600 text-white p-4 shadow-md z-10 flex-shrink-0">
+    <h1 class="text-xl font-bold text-center">Family Point Tracker</h1>
+  </header>
+
+  <main id="main-content" class="flex-1 overflow-y-auto p-4 pb-24 flex items-center justify-center">
+     <p class="text-gray-500 font-bold">Loading Tracker...</p>
+  </main>
+
+  <nav class="bg-white border-t border-gray-200 absolute bottom-0 w-full flex justify-around p-3 pb-6 z-10">
+    <button onclick="switchTab('home')" id="nav-home" class="flex flex-col items-center p-2 text-indigo-600">
+      <span class="text-2xl">🏠</span><span class="text-xs mt-1 font-medium">Home</span>
+    </button>
+    <button onclick="switchTab('manage')" id="nav-manage" class="flex flex-col items-center p-2 text-gray-500">
+      <span class="text-2xl">⚙️</span><span class="text-xs mt-1 font-medium">Manage</span>
+    </button>
+  </nav>
+
+  <div id="modal-container" class="hidden absolute inset-0 z-50 flex items-end justify-center bg-black bg-opacity-50"></div>
+
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyCEGl4q7U8QShWY_urUUwzSrTOkYuB5HMc",
+      authDomain: "kids-points-tracker-6fd3c.firebaseapp.com",
+      projectId: "kids-points-tracker-6fd3c",
+      storageBucket: "kids-points-tracker-6fd3c.firebasestorage.app",
+      messagingSenderId: "922080181506",
+      appId: "1:922080181506:web:1ccbcab29519b00278561b",
+      measurementId: "G-8GF59YTB8K"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+    const auth = firebase.auth();
+
+    let state = { user: null, kids: [], actions: [], rewards: [], activeTab: 'home' };
+
+    auth.onAuthStateChanged(user => {
+      if (!user) {
+         auth.signInAnonymously().catch(console.error);
+         return;
+      }
+      state.user = user;
+      
+      db.collection('kids').onSnapshot(snap => {
+        state.kids = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a,b) => (a.name||'').localeCompare(b.name||''));
+        render();
+      });
+      db.collection('actions').onSnapshot(snap => {
+        state.actions = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        render();
+      });
+      db.collection('rewards').onSnapshot(snap => {
+        state.rewards = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        render();
+      });
+    });
+
+    function switchTab(tab) {
+      state.activeTab = tab;
+      document.getElementById('nav-home').className = `flex flex-col items-center p-2 ${tab === 'home' ? 'text-indigo-600' : 'text-gray-500'}`;
+      document.getElementById('nav-manage').className = `flex flex-col items-center p-2 ${tab === 'manage' ? 'text-indigo-600' : 'text-gray-500'}`;
+      render();
+    }
+
+    function render() {
+      const main = document.getElementById('main-content');
+      main.className = "flex-1 overflow-y-auto p-4 pb-24"; 
+
+      if (state.activeTab === 'home') {
+        if (state.kids.length === 0) {
+          main.innerHTML = `<div class="text-center mt-10 text-gray-500"><p>No kids added yet.</p><p class="text-sm mt-2">Go to Manage to add your kids.</p></div>`;
+          return;
+        }
+        let html = '<div class="space-y-4">';
+        state.kids.forEach(kid => {
+          const pts = kid.points || 0;
+          html += `
+            <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+              <div class="p-5 flex justify-between items-center bg-gradient-to-r from-indigo-50 to-white">
+                <h2 class="text-2xl font-bold text-gray-800">${kid.name || 'Unknown'}</h2>
+                <div class="text-right">
+                  <span class="text-sm text-gray-500 uppercase tracking-wide font-semibold">Points</span>
+                  <div class="text-4xl font-black ${pts < 0 ? 'text-red-500' : 'text-indigo-600'}">${pts}</div>
+                </div>
+              </div>
+              <div class="grid grid-cols-3 gap-2 p-3 bg-gray-50">
+                <button onclick="openModal('positive', '${kid.id}')" class="flex flex-col items-center justify-center p-3 bg-green-100 text-green-700 rounded-lg">
+                  <span class="text-2xl mb-1">➕</span><span class="text-xs font-bold">Earn</span>
+                </button>
+                <button onclick="openModal('negative', '${kid.id}')" class="flex flex-col items-center justify-center p-3 bg-red-100 text-red-700 rounded-lg">
+                  <span class="text-2xl mb-1">➖</span><span class="text-xs font-bold">Deduct</span>
+                </button>
+                <button onclick="openModal('redeem', '${kid.id}')" class="flex flex-col items-center justify-center p-3 bg-purple-100 text-purple-700 rounded-lg">
+                  <span class="text-2xl mb-1">🎁</span><span class="text-xs font-bold">Redeem</span>
+                </button>
+              </div>
+            </div>
+          `;
+        });
+        html += '</div>';
+        main.innerHTML = html;
+      } else {
+        let kidsList = state.kids.map(k => `
+          <li class="flex justify-between items-center bg-gray-50 p-2 rounded-lg text-sm">
+            <span>${k.name}</span><button onclick="deleteItem('kids', '${k.id}')" class="text-red-500 p-1">🗑️</button>
+          </li>`).join('');
+          
+        let actionsList = state.actions.map(a => `
+          <div class="flex justify-between items-center bg-gray-50 p-2 rounded-lg text-sm">
+            <span class="truncate pr-2">${a.name}</span>
+            <div class="flex items-center gap-3 whitespace-nowrap">
+              <span class="font-bold ${a.type === 'positive' ? 'text-green-600' : 'text-red-600'}">${a.type === 'positive' ? '+' : '-'}${a.value}</span>
+              <button onclick="deleteItem('actions', '${a.id}')" class="text-red-500 p-1">🗑️</button>
+            </div>
+          </div>`).join('');
+
+        let rewardsList = state.rewards.map(r => `
+          <div class="flex justify-between items-center bg-gray-50 p-2 rounded-lg text-sm">
+            <span class="truncate pr-2">${r.name}</span>
+            <div class="flex items-center gap-3 whitespace-nowrap">
+              <span class="font-bold text-purple-600">-${r.cost}</span>
+              <button onclick="deleteItem('rewards', '${r.id}')" class="text-red-500 p-1">🗑️</button>
+            </div>
+          </div>`).join('');
+
+        main.innerHTML = `
+          <div class="space-y-8 pb-10">
+            <section class="bg-white p-4 rounded-xl shadow-sm">
+              <h3 class="text-lg font-bold mb-4 flex items-center text-gray-800"><span class="mr-2">👤</span> Kids</h3>
+              <div class="flex gap-2 mb-4">
+                <input type="text" id="newKid" placeholder="Kid's Name" class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500" />
+                <button onclick="addKid()" class="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-semibold">Add</button>
+              </div>
+              <ul class="space-y-2">${kidsList}</ul>
+            </section>
+
+            <section class="bg-white p-4 rounded-xl shadow-sm">
+              <h3 class="text-lg font-bold mb-4 flex items-center text-gray-800"><span class="mr-2">📋</span> Point Actions</h3>
+              <div class="flex flex-col gap-2 mb-4">
+                <div class="flex gap-2">
+                  <input type="text" id="newActionName" placeholder="Action" class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500" />
+                  <input type="number" id="newActionVal" placeholder="Pts" class="w-20 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500" />
+                </div>
+                <div class="flex gap-2">
+                  <select id="newActionType" class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 bg-white">
+                    <option value="positive">Positive (+)</option><option value="negative">Negative (-)</option>
+                  </select>
+                  <button onclick="addAction()" class="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-semibold">Add</button>
+                </div>
+              </div>
+              <div class="space-y-2 max-h-48 overflow-y-auto">${actionsList}</div>
+            </section>
+
+            <section class="bg-white p-4 rounded-xl shadow-sm mb-4">
+              <h3 class="text-lg font-bold mb-4 flex items-center text-gray-800"><span class="mr-2">🎁</span> Reward Legend</h3>
+              <div class="flex gap-2 mb-4">
+                <input type="text" id="newRewardName" placeholder="Reward" class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500" />
+                <input type="number" id="newRewardCost" placeholder="Cost" class="w-20 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500" />
+                <button onclick="addReward()" class="bg-indigo-600 text-white px-3 py-2 rounded-lg text-sm font-semibold">Add</button>
+              </div>
+              <div class="space-y-2 max-h-48 overflow-y-auto">${rewardsList}</div>
+            </section>
+          </div>
+        `;
+      }
+    }
+
+    window.deleteItem = async (col, id) => {
+      try { await db.collection(col).doc(id).delete(); } catch(e) { console.error(e); }
+    };
+
+    window.addKid = async () => {
+      const name = document.getElementById('newKid').value.trim();
+      if(name) { 
+        document.getElementById('newKid').value = '';
+        await db.collection('kids').add({name, points: 0}); 
+      }
+    };
+
+    window.addAction = async () => {
+      const name = document.getElementById('newActionName').value.trim();
+      const value = document.getElementById('newActionVal').value;
+      const type = document.getElementById('newActionType').value;
+      if(name && value) { 
+        document.getElementById('newActionName').value = '';
+        document.getElementById('newActionVal').value = '';
+        await db.collection('actions').add({name, value: parseInt(value), type}); 
+      }
+    };
+
+    window.addReward = async () => {
+      const name = document.getElementById('newRewardName').value.trim();
+      const cost = document.getElementById('newRewardCost').value;
+      if(name && cost) { 
+        document.getElementById('newRewardName').value = '';
+        document.getElementById('newRewardCost').value = '';
+        await db.collection('rewards').add({name, cost: parseInt(cost)}); 
+      }
+    };
+
+    window.openModal = (type, kidId) => {
+      const kid = state.kids.find(k => k.id === kidId);
+      let title = '', items = [], colorClass = '';
+
+      if (type === 'positive') { title = `Award to ${kid.name}`; items = state.actions.filter(a => a.type === 'positive'); colorClass = 'bg-green-500'; }
+      else if (type === 'negative') { title = `Deduct from ${kid.name}`; items = state.actions.filter(a => a.type === 'negative'); colorClass = 'bg-red-500'; }
+      else if (type === 'redeem') { title = `${kid.name} Redeeming`; items = state.rewards; colorClass = 'bg-purple-500'; }
+
+      let itemsHtml = items.length === 0 ? `<p class="text-gray-500 text-center py-4">No items added yet.</p>` : '';
+      items.forEach(item => {
+        const val = type === 'positive' ? (item.value || 0) : type === 'negative' ? -Math.abs(item.value || 0) : -Math.abs(item.cost || 0);
+        const badgeClass = type === 'positive' ? 'bg-green-100 text-green-700' : type === 'negative' ? 'bg-red-100 text-red-700' : 'bg-purple-100 text-purple-700';
+        const displayVal = type === 'positive' ? '+'+(item.value||0) : (item.value || item.cost || 0);
+        
+        itemsHtml += `
+          <button onclick="confirmAction('${kid.id}', ${val})" class="flex justify-between items-center p-4 border border-gray-200 rounded-xl active:bg-gray-100 text-left w-full mb-2">
+            <span class="font-medium text-gray-800">${item.name}</span>
+            <span class="font-bold px-3 py-1 rounded-full text-sm ${badgeClass}">${displayVal}</span>
+          </button>
+        `;
+      });
+
+      const mc = document.getElementById('modal-container');
+      mc.innerHTML = `
+        <div class="bg-white w-full max-w-md rounded-t-2xl max-h-[80vh] flex flex-col">
+          <div class="${colorClass} p-4 rounded-t-2xl flex justify-between items-center text-white">
+            <h3 class="font-bold text-lg">${title}</h3>
+            <button onclick="closeModal()" class="p-1 text-2xl font-bold">❌</button>
+          </div>
+          <div class="p-4 overflow-y-auto pb-10">
+            ${itemsHtml}
+          </div>
+        </div>
+      `;
+      mc.classList.remove('hidden');
+    };
+
+    window.closeModal = () => {
+      document.getElementById('modal-container').classList.add('hidden');
+    };
+
+    window.confirmAction = async (kidId, change) => {
+      const kid = state.kids.find(k => k.id === kidId);
+      try {
+        await db.collection('kids').doc(kidId).update({ points: (kid.points || 0) + change });
+        closeModal();
+      } catch (err) { console.error(err); }
+    };
+  </script>
+</body>
+</html>
